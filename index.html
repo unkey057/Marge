@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>くだものマージ 🍉</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Yu Gothic", sans-serif;
+    background: linear-gradient(160deg, #aee9ff 0%, #d8f7c9 60%, #ffe9a8 100%);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #app {
+    max-width: 480px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  h1 {
+    font-size: clamp(18px, 5vw, 26px);
+    color: #ff6b6b;
+    text-shadow: 2px 2px 0 #fff;
+    white-space: nowrap;
+  }
+
+  .score-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 6px 14px;
+    text-align: center;
+    box-shadow: 0 3px 0 rgba(0,0,0,.12);
+    min-width: 80px;
+  }
+  .score-box .label { font-size: 11px; color: #888; }
+  .score-box .value { font-size: 20px; font-weight: bold; color: #ff9f43; }
+
+  #collection {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    background: rgba(255,255,255,.55);
+    border-radius: 14px;
+    padding: 5px 6px;
+    font-size: clamp(14px, 4.5vw, 22px);
+  }
+  #collection span { opacity: .25; filter: grayscale(1); transition: all .4s; }
+  #collection span.found { opacity: 1; filter: none; transform: scale(1.1); }
+
+  #board-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: 6px;
+    background: rgba(255,255,255,.45);
+    border-radius: 20px;
+    padding: 10px;
+    aspect-ratio: 5 / 6;
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,.08);
+    position: relative;
+  }
+
+  .cell {
+    background: rgba(255,255,255,.65);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .cell.drop-ok { background: #c9f7c9; box-shadow: 0 0 0 3px #7ed67e inset; }
+
+  .item {
+    width: 88%;
+    height: 88%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(24px, 9vw, 46px);
+    cursor: grab;
+    border-radius: 50%;
+    transition: transform .12s;
+    animation: pop-in .25s ease-out;
+    line-height: 1;
+  }
+  .item:active { cursor: grabbing; }
+  .item.dragging {
+    position: fixed;
+    z-index: 100;
+    pointer-events: none;
+    transform: scale(1.25);
+    filter: drop-shadow(0 6px 6px rgba(0,0,0,.25));
+    transition: none;
+  }
+  .item.merge-pop { animation: merge-pop .35s ease-out; }
+  .item.wiggle { animation: wiggle .5s ease-in-out; }
+
+  @keyframes pop-in {
+    0% { transform: scale(0); }
+    70% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+  @keyframes merge-pop {
+    0% { transform: scale(.3); }
+    50% { transform: scale(1.4); }
+    100% { transform: scale(1); }
+  }
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(0); }
+    25% { transform: rotate(-12deg); }
+    75% { transform: rotate(12deg); }
+  }
+
+  footer { display: flex; gap: 10px; }
+
+  button {
+    flex: 1;
+    border: none;
+    border-radius: 18px;
+    padding: 12px 8px;
+    font-size: clamp(15px, 4.5vw, 20px);
+    font-family: inherit;
+    font-weight: bold;
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 4px 0 rgba(0,0,0,.18);
+    transition: transform .08s, box-shadow .08s;
+  }
+  button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.18); }
+  #spawn-btn { background: #ff9f43; }
+  #spawn-btn:disabled { background: #ccc; cursor: default; }
+  #reset-btn { background: #74b9ff; flex: 0 0 30%; }
+
+  /* メッセージ・おいわい */
+  #toast {
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    background: #fff;
+    border-radius: 24px;
+    padding: 14px 28px;
+    font-size: clamp(18px, 6vw, 28px);
+    font-weight: bold;
+    color: #ff6b6b;
+    box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    z-index: 200;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show { animation: toast-pop 1.4s ease-out forwards; }
+  @keyframes toast-pop {
+    0% { transform: translateX(-50%) scale(0); }
+    15% { transform: translateX(-50%) scale(1.1); }
+    25% { transform: translateX(-50%) scale(1); }
+    80% { transform: translateX(-50%) scale(1); opacity: 1; }
+    100% { transform: translateX(-50%) scale(.8); opacity: 0; }
+  }
+
+  .confetti {
+    position: fixed;
+    z-index: 150;
+    pointer-events: none;
+    font-size: 22px;
+    animation: confetti-fall linear forwards;
+  }
+  @keyframes confetti-fall {
+    0% { transform: translateY(-30px) rotate(0); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: .6; }
+  }
+
+  .score-float {
+    position: fixed;
+    z-index: 120;
+    pointer-events: none;
+    font-size: 20px;
+    font-weight: bold;
+    color: #ff9f43;
+    text-shadow: 1px 1px 0 #fff;
+    animation: float-up .9s ease-out forwards;
+  }
+  @keyframes float-up {
+    0% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-60px); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🍉 くだものマージ</h1>
+    <div class="score-box">
+      <div class="label">スコア</div>
+      <div class="value" id="score">0</div>
+    </div>
+    <div class="score-box">
+      <div class="label">さいこう</div>
+      <div class="value" id="best">0</div>
+    </div>
+  </header>
+
+  <div id="collection"></div>
+
+  <div id="board-wrap">
+    <div id="board"></div>
+  </div>
+
+  <footer>
+    <button id="spawn-btn">🌱 たねをまく</button>
+    <button id="reset-btn">🔄 はじめから</button>
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---- くだものの進化チェーン ----
+  const CHAIN = ['🍒', '🍓', '🍋', '🍊', '🍎', '🍇', '🍑', '🍍', '🍉', '🌈'];
+  const NAMES = ['さくらんぼ', 'いちご', 'レモン', 'みかん', 'りんご',
+                 'ぶどう', 'もも', 'パイナップル', 'すいか', 'にじのくだもの'];
+  const COLS = 5, ROWS = 6, CELLS = COLS * ROWS;
+  const MAX_TIER = CHAIN.length - 1;
+
+  // ---- 状態 ----
+  let grid = new Array(CELLS).fill(-1); // 各マスの tier（-1 = 空）
+  let score = 0;
+  let best = Number(localStorage.getItem('fruitMergeBest') || 0);
+  let found = new Set(JSON.parse(localStorage.getItem('fruitMergeFound') || '[0]'));
+
+  // ---- DOM ----
+  const boardEl = document.getElementById('board');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const spawnBtn = document.getElementById('spawn-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  const toastEl = document.getElementById('toast');
+  const collectionEl = document.getElementById('collection');
+
+  const cells = [];
+  for (let i = 0; i < CELLS; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.index = i;
+    boardEl.appendChild(cell);
+    cells.push(cell);
+  }
+
+  // ---- サウンド（WebAudio・タップで初期化） ----
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { /* 音なしでも遊べる */ }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  function beep(freq, dur = 0.15, type = 'sine', vol = 0.2, delay = 0) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime + delay;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+  }
+  function playSpawn() { beep(520, 0.1, 'triangle'); }
+  function playMerge(tier) {
+    beep(440 + tier * 80, 0.12, 'sine');
+    beep(660 + tier * 80, 0.15, 'sine', 0.2, 0.08);
+  }
+  function playFanfare() {
+    [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.25, 'triangle', 0.25, i * 0.13));
+  }
+  function playBuzz() { beep(180, 0.2, 'square', 0.08); }
+
+  // ---- 描画 ----
+  function render() {
+    for (let i = 0; i < CELLS; i++) {
+      const cell = cells[i];
+      const cur = cell.querySelector('.item');
+      const tier = grid[i];
+      if (tier < 0) {
+        if (cur) cur.remove();
+      } else {
+        if (cur && Number(cur.dataset.tier) === tier) continue;
+        if (cur) cur.remove();
+        const item = document.createElement('div');
+        item.className = 'item';
+        item.dataset.tier = tier;
+        item.textContent = CHAIN[tier];
+        cell.appendChild(item);
+      }
+    }
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+  }
+
+  function renderCollection() {
+    collectionEl.innerHTML = '';
+    CHAIN.forEach((emoji, tier) => {
+      const span = document.createElement('span');
+      span.textContent = emoji;
+      if (found.has(tier)) span.classList.add('found');
+      collectionEl.appendChild(span);
+    });
+  }
+
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth; // アニメーションをリスタート
+    toastEl.classList.add('show');
+  }
+
+  function throwConfetti(count = 24) {
+    const emojis = ['🎉', '⭐', '💛', '💖', '✨', '🍬'];
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      c.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.animationDuration = 1.2 + Math.random() * 1.5 + 's';
+      c.style.animationDelay = Math.random() * 0.4 + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 3500);
+    }
+  }
+
+  function floatScore(x, y, points) {
+    const el = document.createElement('div');
+    el.className = 'score-float';
+    el.textContent = '+' + points;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
+  }
+
+  // ---- ゲームロジック ----
+  function emptyIndices() {
+    const out = [];
+    for (let i = 0; i < CELLS; i++) if (grid[i] < 0) out.push(i);
+    return out;
+  }
+
+  function spawn() {
+    ensureAudio();
+    const empties = emptyIndices();
+    if (empties.length === 0) {
+      showToast('いっぱいだよ！ マージしてね');
+      playBuzz();
+      return;
+    }
+    const idx = empties[Math.floor(Math.random() * empties.length)];
+    // ほとんど🍒、ときどき🍓
+    grid[idx] = Math.random() < 0.85 ? 0 : 1;
+    playSpawn();
+    render();
+    updateSpawnBtn();
+  }
+
+  function updateSpawnBtn() {
+    const full = emptyIndices().length === 0;
+    spawnBtn.disabled = full;
+    spawnBtn.textContent = full ? '🈵 マージしてね' : '🌱 たねをまく';
+  }
+
+  function merge(fromIdx, toIdx, dropX, dropY) {
+    const tier = grid[fromIdx];
+    const newTier = tier + 1;
+    grid[fromIdx] = -1;
+    grid[toIdx] = newTier;
+
+    const points = newTier * 10;
+    score += points;
+    if (score > best) {
+      best = score;
+      localStorage.setItem('fruitMergeBest', String(best));
+    }
+
+    const firstTime = !found.has(newTier);
+    if (firstTime) {
+      found.add(newTier);
+      localStorage.setItem('fruitMergeFound', JSON.stringify([...found]));
+    }
+
+    render();
+    renderCollection();
+    updateSpawnBtn();
+    floatScore(dropX, dropY, points);
+
+    const mergedItem = cells[toIdx].querySelector('.item');
+    if (mergedItem) mergedItem.classList.add('merge-pop');
+
+    if (newTier === MAX_TIER) {
+      showToast('🌈 にじのくだもの！ すごい！！');
+      throwConfetti(50);
+      playFanfare();
+    } else if (firstTime) {
+      showToast(`はじめての ${NAMES[newTier]}！`);
+      throwConfetti(20);
+      playFanfare();
+    } else {
+      playMerge(newTier);
+    }
+  }
+
+  // ---- ドラッグ操作（ポインターイベントでタッチ・マウス両対応） ----
+  let drag = null; // { fromIdx, el, offsetX, offsetY }
+
+  function cellFromPoint(x, y) {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return -1;
+    const cell = el.closest('.cell');
+    return cell ? Number(cell.dataset.index) : -1;
+  }
+
+  boardEl.addEventListener('pointerdown', (e) => {
+    ensureAudio();
+    const item = e.target.closest('.item');
+    if (!item || drag) return;
+    const cell = item.parentElement;
+    const fromIdx = Number(cell.dataset.index);
+    const rect = item.getBoundingClientRect();
+
+    drag = {
+      fromIdx,
+      el: item,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      w: rect.width,
+      h: rect.height,
+    };
+    item.classList.add('dragging');
+    item.style.width = rect.width + 'px';
+    item.style.height = rect.height + 'px';
+    moveDrag(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+
+  function moveDrag(x, y) {
+    drag.el.style.left = (x - drag.offsetX) + 'px';
+    drag.el.style.top = (y - drag.offsetY) + 'px';
+
+    cells.forEach(c => c.classList.remove('drop-ok'));
+    const overIdx = cellFromPoint(x, y);
+    if (overIdx >= 0 && overIdx !== drag.fromIdx &&
+        (grid[overIdx] === grid[drag.fromIdx] && grid[drag.fromIdx] < MAX_TIER || grid[overIdx] < 0)) {
+      cells[overIdx].classList.add('drop-ok');
+    }
+  }
+
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    moveDrag(e.clientX, e.clientY);
+    e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('pointerup', (e) => {
+    if (!drag) return;
+    const { fromIdx, el } = drag;
+    const dropIdx = cellFromPoint(e.clientX, e.clientY);
+    cells.forEach(c => c.classList.remove('drop-ok'));
+
+    el.classList.remove('dragging');
+    el.style.cssText = '';
+    drag = null;
+
+    if (dropIdx < 0 || dropIdx === fromIdx) {
+      render();
+      return;
+    }
+
+    const fromTier = grid[fromIdx];
+    const toTier = grid[dropIdx];
+
+    if (toTier === fromTier && fromTier < MAX_TIER) {
+      merge(fromIdx, dropIdx, e.clientX, e.clientY);
+    } else if (toTier < 0) {
+      // 空きマスへ移動
+      grid[dropIdx] = fromTier;
+      grid[fromIdx] = -1;
+      render();
+    } else {
+      // マージできない組み合わせ
+      playBuzz();
+      render();
+      const target = cells[dropIdx].querySelector('.item');
+      if (target) {
+        target.classList.add('wiggle');
+        setTimeout(() => target.classList.remove('wiggle'), 500);
+      }
+    }
+  });
+
+  window.addEventListener('pointercancel', () => {
+    if (!drag) return;
+    drag.el.classList.remove('dragging');
+    drag.el.style.cssText = '';
+    drag = null;
+    cells.forEach(c => c.classList.remove('drop-ok'));
+    render();
+  });
+
+  // ---- ボタン ----
+  spawnBtn.addEventListener('click', spawn);
+
+  resetBtn.addEventListener('click', () => {
+    ensureAudio();
+    grid = new Array(CELLS).fill(-1);
+    score = 0;
+    startGame();
+    showToast('あたらしいゲーム！');
+  });
+
+  function startGame() {
+    // 最初にいくつかまいておく
+    for (let i = 0; i < 6; i++) {
+      const empties = emptyIndices();
+      const idx = empties[Math.floor(Math.random() * empties.length)];
+      grid[idx] = 0;
+    }
+    render();
+    renderCollection();
+    updateSpawnBtn();
+  }
+
+  startGame();
+})();
+</script>
+</body>
+</html>
