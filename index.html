@@ -74,13 +74,13 @@
 
   #board {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    grid-template-rows: repeat(6, 1fr);
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
     gap: 6px;
     background: rgba(255,255,255,.45);
     border-radius: 20px;
     padding: 10px;
-    aspect-ratio: 5 / 6;
+    aspect-ratio: 1 / 1;
     max-width: 100%;
     max-height: 100%;
     box-shadow: inset 0 2px 8px rgba(0,0,0,.08);
@@ -103,7 +103,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: clamp(24px, 9vw, 46px);
+    font-size: clamp(28px, 12vw, 62px);
     cursor: grab;
     border-radius: 50%;
     transition: transform .12s;
@@ -292,10 +292,9 @@
   'use strict';
 
   // ---- くだものの進化チェーン ----
-  const CHAIN = ['🍒', '🍓', '🍋', '🍊', '🍎', '🍇', '🍑', '🍍', '🍉', '🌈'];
-  const NAMES = ['さくらんぼ', 'いちご', 'レモン', 'みかん', 'りんご',
-                 'ぶどう', 'もも', 'パイナップル', 'すいか', 'にじのくだもの'];
-  const COLS = 5, ROWS = 6, CELLS = COLS * ROWS;
+  const CHAIN = ['🍒', '🍓', '🍋', '🍊', '🍎'];
+  const NAMES = ['さくらんぼ', 'いちご', 'レモン', 'みかん', 'りんご'];
+  const COLS = 4, ROWS = 4, CELLS = COLS * ROWS;
   const MAX_TIER = CHAIN.length - 1;
   const ROCK = 99;              // じゃまな岩（岩どうしを重ねると消える）
   const ROCK_EMOJI = '🪨';
@@ -308,7 +307,8 @@
   let score = 0;
   let gameOver = false;
   let best = Number(localStorage.getItem('fruitMergeBest') || 0);
-  let found = new Set(JSON.parse(localStorage.getItem('fruitMergeFound') || '[0]'));
+  let found = new Set(JSON.parse(localStorage.getItem('fruitMergeFound') || '[0]')
+    .filter(t => t < CHAIN.length)); // 昔のセーブに残った上位くだものは除外
 
   // ---- DOM ----
   const boardEl = document.getElementById('board');
@@ -570,7 +570,7 @@
     if (mergedItem) mergedItem.classList.add('merge-pop');
 
     if (newTier === MAX_TIER) {
-      showToast('🌈 にじのくだもの！ すごい！！');
+      showToast('🍎 りんごができた！ すごい！！');
       throwConfetti(50);
       playFanfare();
     } else if (firstTime) {
@@ -702,7 +702,7 @@
 
   function startGame() {
     // 最初にいくつかまいておく
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       const empties = emptyIndices();
       const idx = empties[Math.floor(Math.random() * empties.length)];
       grid[idx] = 0;
