@@ -210,6 +210,43 @@
     0% { transform: translateY(0); opacity: 1; }
     100% { transform: translateY(-60px); opacity: 0; }
   }
+
+  /* 自動スポーンのタイマーバー */
+  #timer-bar-wrap {
+    height: 8px;
+    background: rgba(255,255,255,.5);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #timer-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #7ed67e, #ff9f43);
+    border-radius: 4px;
+  }
+
+  /* ゲームオーバー */
+  #gameover {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 300;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #gameover.show { display: flex; }
+  #gameover .panel {
+    background: #fff;
+    border-radius: 28px;
+    padding: 28px 36px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,.3);
+    animation: pop-in .35s ease-out;
+  }
+  #gameover .panel h2 { font-size: 30px; color: #ff6b6b; margin-bottom: 10px; }
+  #gameover .panel p { font-size: 18px; color: #555; margin-bottom: 18px; }
+  #gameover .panel button { background: #ff9f43; padding: 14px 30px; flex: none; }
 </style>
 </head>
 <body>
@@ -228,6 +265,8 @@
 
   <div id="collection"></div>
 
+  <div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+
   <div id="board-wrap">
     <div id="board"></div>
   </div>
@@ -240,6 +279,14 @@
 
 <div id="toast"></div>
 
+<div id="gameover">
+  <div class="panel">
+    <h2>😵 おしまい！</h2>
+    <p>スコア: <strong id="final-score">0</strong></p>
+    <button id="retry-btn">🔄 もういちど</button>
+  </div>
+</div>
+
 <script>
 (() => {
   'use strict';
@@ -250,10 +297,16 @@
                  'ぶどう', 'もも', 'パイナップル', 'すいか', 'にじのくだもの'];
   const COLS = 5, ROWS = 6, CELLS = COLS * ROWS;
   const MAX_TIER = CHAIN.length - 1;
+  const ROCK = 99;              // じゃまな岩（岩どうしを重ねると消える）
+  const ROCK_EMOJI = '🪨';
+  const ROCK_CHANCE = 0.12;     // スポーン時に岩になる確率
+  const SPAWN_PER_CLICK = 2;    // 1回のボタンで出る数
+  const AUTO_SPAWN_MS = 7000;   // 自動スポーンの間隔
 
   // ---- 状態 ----
-  let grid = new Array(CELLS).fill(-1); // 各マスの tier（-1 = 空）
+  let grid = new Array(CELLS).fill(-1); // 各マスの tier（-1 = 空、ROCK = 岩）
   let score = 0;
+  let gameOver = false;
   let best = Number(localStorage.getItem('fruitMergeBest') || 0);
   let found = new Set(JSON.parse(localStorage.getItem('fruitMergeFound') || '[0]'));
 
@@ -265,6 +318,10 @@
   const resetBtn = document.getElementById('reset-btn');
   const toastEl = document.getElementById('toast');
   const collectionEl = document.getElementById('collection');
+  const timerBarEl = document.getElementById('timer-bar');
+  const gameoverEl = document.getElementById('gameover');
+  const finalScoreEl = document.getElementById('final-score');
+  const retryBtn = document.getElementById('retry-btn');
 
   const cells = [];
   for (let i = 0; i < CELLS; i++) {
@@ -321,7 +378,7 @@
         const item = document.createElement('div');
         item.className = 'item';
         item.dataset.tier = tier;
-        item.textContent = CHAIN[tier];
+        item.textContent = tier === ROCK ? ROCK_EMOJI : CHAIN[tier];
         cell.appendChild(item);
       }
     }
@@ -377,26 +434,112 @@
     return out;
   }
 
+  function rollItem() {
+    if (Math.random() < ROCK_CHANCE) return ROCK;
+    return Math.random() < 0.85 ? 0 : 1; // ほとんど🍒、ときどき🍓
+  }
+
+  function spawnOne(silent) {
+    const empties = emptyIndices();
+    if (empties.length === 0) return false;
+    const idx = empties[Math.floor(Math.random() * empties.length)];
+    grid[idx] = rollItem();
+    if (!silent) playSpawn();
+    return true;
+  }
+
   function spawn() {
     ensureAudio();
-    const empties = emptyIndices();
-    if (empties.length === 0) {
+    if (gameOver) return;
+    if (emptyIndices().length === 0) {
       showToast('いっぱいだよ！ マージしてね');
       playBuzz();
+      checkGameOver();
       return;
     }
-    const idx = empties[Math.floor(Math.random() * empties.length)];
-    // ほとんど🍒、ときどき🍓
-    grid[idx] = Math.random() < 0.85 ? 0 : 1;
-    playSpawn();
+    for (let i = 0; i < SPAWN_PER_CLICK; i++) spawnOne(i > 0);
     render();
     updateSpawnBtn();
+    checkGameOver();
   }
 
   function updateSpawnBtn() {
     const full = emptyIndices().length === 0;
     spawnBtn.disabled = full;
-    spawnBtn.textContent = full ? '🈵 マージしてね' : '🌱 たねをまく';
+    spawnBtn.textContent = full ? '🈵 マージしてね' : `🌱 たねをまく ×${SPAWN_PER_CLICK}`;
+  }
+
+  // ---- 自動スポーン（時間がたつと勝手に増えていく！） ----
+  let autoTimer = null;
+  let autoStart = 0;
+
+  function startAutoSpawn() {
+    stopAutoSpawn();
+    autoStart = performance.now();
+    autoTimer = setInterval(() => {
+      if (gameOver) return;
+      if (spawnOne(true)) {
+        playSpawn();
+        render();
+        updateSpawnBtn();
+      }
+      autoStart = performance.now();
+      checkGameOver();
+    }, AUTO_SPAWN_MS);
+    requestAnimationFrame(tickTimerBar);
+  }
+
+  function stopAutoSpawn() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  }
+
+  function tickTimerBar() {
+    if (!autoTimer) { timerBarEl.style.width = '0%'; return; }
+    const ratio = Math.min(1, (performance.now() - autoStart) / AUTO_SPAWN_MS);
+    timerBarEl.style.width = (ratio * 100) + '%';
+    requestAnimationFrame(tickTimerBar);
+  }
+
+  // ---- ゲームオーバー判定 ----
+  function canMergeAnything() {
+    const counts = {};
+    for (const t of grid) {
+      if (t < 0) continue;
+      if (t !== ROCK && t >= MAX_TIER) continue; // 🌈はマージできない
+      counts[t] = (counts[t] || 0) + 1;
+      if (counts[t] >= 2) return true;
+    }
+    return false;
+  }
+
+  function checkGameOver() {
+    if (gameOver) return;
+    if (emptyIndices().length > 0 || canMergeAnything()) return;
+    gameOver = true;
+    stopAutoSpawn();
+    finalScoreEl.textContent = score;
+    gameoverEl.classList.add('show');
+    playBuzz();
+  }
+
+  function canPair(a, b) {
+    return a === b && a >= 0 && (a === ROCK || a < MAX_TIER);
+  }
+
+  function clearRocks(fromIdx, toIdx, dropX, dropY) {
+    grid[fromIdx] = -1;
+    grid[toIdx] = -1;
+    const points = 30;
+    score += points;
+    if (score > best) {
+      best = score;
+      localStorage.setItem('fruitMergeBest', String(best));
+    }
+    render();
+    updateSpawnBtn();
+    floatScore(dropX, dropY, points);
+    showToast('🪨 いわを こわした！');
+    playMerge(3);
   }
 
   function merge(fromIdx, toIdx, dropX, dropY) {
@@ -451,6 +594,7 @@
 
   boardEl.addEventListener('pointerdown', (e) => {
     ensureAudio();
+    if (gameOver) return;
     const item = e.target.closest('.item');
     if (!item || drag) return;
     const cell = item.parentElement;
@@ -479,7 +623,7 @@
     cells.forEach(c => c.classList.remove('drop-ok'));
     const overIdx = cellFromPoint(x, y);
     if (overIdx >= 0 && overIdx !== drag.fromIdx &&
-        (grid[overIdx] === grid[drag.fromIdx] && grid[drag.fromIdx] < MAX_TIER || grid[overIdx] < 0)) {
+        (canPair(grid[overIdx], grid[drag.fromIdx]) || grid[overIdx] < 0)) {
       cells[overIdx].classList.add('drop-ok');
     }
   }
@@ -508,8 +652,12 @@
     const fromTier = grid[fromIdx];
     const toTier = grid[dropIdx];
 
-    if (toTier === fromTier && fromTier < MAX_TIER) {
-      merge(fromIdx, dropIdx, e.clientX, e.clientY);
+    if (canPair(fromTier, toTier)) {
+      if (fromTier === ROCK) {
+        clearRocks(fromIdx, dropIdx, e.clientX, e.clientY);
+      } else {
+        merge(fromIdx, dropIdx, e.clientX, e.clientY);
+      }
     } else if (toTier < 0) {
       // 空きマスへ移動
       grid[dropIdx] = fromTier;
@@ -539,13 +687,18 @@
   // ---- ボタン ----
   spawnBtn.addEventListener('click', spawn);
 
-  resetBtn.addEventListener('click', () => {
+  function newGame() {
     ensureAudio();
     grid = new Array(CELLS).fill(-1);
     score = 0;
+    gameOver = false;
+    gameoverEl.classList.remove('show');
     startGame();
     showToast('あたらしいゲーム！');
-  });
+  }
+
+  resetBtn.addEventListener('click', newGame);
+  retryBtn.addEventListener('click', newGame);
 
   function startGame() {
     // 最初にいくつかまいておく
@@ -557,9 +710,20 @@
     render();
     renderCollection();
     updateSpawnBtn();
+    startAutoSpawn();
   }
 
   startGame();
+
+  // ?debug 付きで開いたときだけのテスト用フック
+  if (location.search.includes('debug')) {
+    window.__fruitMerge = {
+      getGrid: () => [...grid],
+      setGrid: (g) => { grid = [...g]; render(); updateSpawnBtn(); checkGameOver(); },
+      isGameOver: () => gameOver,
+      ROCK,
+    };
+  }
 })();
 </script>
 </body>
