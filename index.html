@@ -292,8 +292,9 @@
   'use strict';
 
   // ---- くだものの進化チェーン ----
-  const CHAIN = ['🍒', '🍓', '🍋', '🍊', '🍎'];
-  const NAMES = ['さくらんぼ', 'いちご', 'レモン', 'みかん', 'りんご'];
+  const CHAIN = ['🍒', '🍓', '🍋', '🍊', '🍎', '🍇', '🍑', '🍍', '🍉', '🌈'];
+  const NAMES = ['さくらんぼ', 'いちご', 'レモン', 'みかん', 'りんご',
+                 'ぶどう', 'もも', 'パイナップル', 'すいか', 'にじのくだもの'];
   const COLS = 4, ROWS = 4, CELLS = COLS * ROWS;
   const MAX_TIER = CHAIN.length - 1;
   const ROCK = 99;              // じゃまな岩（岩どうしを重ねると消える）
@@ -434,9 +435,17 @@
     return out;
   }
 
+  // スポーンは🍒〜🍎まで（低いくだものほど出やすい）
+  const SPAWN_WEIGHTS = [30, 25, 20, 15, 10]; // tier 0〜4
   function rollItem() {
     if (Math.random() < ROCK_CHANCE) return ROCK;
-    return Math.random() < 0.85 ? 0 : 1; // ほとんど🍒、ときどき🍓
+    const total = SPAWN_WEIGHTS.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let tier = 0; tier < SPAWN_WEIGHTS.length; tier++) {
+      r -= SPAWN_WEIGHTS[tier];
+      if (r < 0) return tier;
+    }
+    return 0;
   }
 
   function spawnOne(silent) {
@@ -570,7 +579,7 @@
     if (mergedItem) mergedItem.classList.add('merge-pop');
 
     if (newTier === MAX_TIER) {
-      showToast('🍎 りんごができた！ すごい！！');
+      showToast('🌈 にじのくだもの！ すごい！！');
       throwConfetti(50);
       playFanfare();
     } else if (firstTime) {
